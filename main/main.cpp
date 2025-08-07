@@ -42,12 +42,6 @@ This is necessary to prevent the I2C slave from blocking the master when it is n
 
 typedef struct
 {
-    int sockfd;
-    bool connected;
-} sse_client_t;
-
-typedef struct
-{
     i2c_slave_dev_handle_t slave_handle;
     QueueHandle_t event_queue;
     QueueHandle_t cmd_queue; // FreeRTOS queue for received command buffers
@@ -58,8 +52,7 @@ typedef struct
     bool wifi_started;               // flag to indicate if WiFi is connected
     SemaphoreHandle_t ret_cmd_mutex; // mutex for ret_cmd
     httpd_handle_t http_server;      // HTTP server handle for SSE
-    sse_client_t sse_clients[MAX_SSE_CLIENTS]; // Array of SSE clients
-    SemaphoreHandle_t sse_clients_mutex; // Mutex to protect SSE clients array
+    float sensor_data[8];            // latest sensor data (up to 8 sensors)
 } i2c_slave_context_t;
 
 // ===== WIFI Task =====
@@ -75,8 +68,8 @@ i2c_slave_context_t context = {
     .wifi_started = false,
     .ret_cmd_mutex = NULL,
     .http_server = NULL,
-    .sse_clients = {{-1, false}}, // Initialize all clients as disconnected
-    .sse_clients_mutex = NULL};
+    .sensor_data = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f}
+};
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_wifi_event_group;
 
@@ -200,135 +193,30 @@ static esp_err_t set_cmd_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// ===== SSE Client Management =====
-static bool add_sse_client(int sockfd)
+// ===== Status GET Handler =====
+static esp_err_t status_handler(httpd_req_t *req)
 {
-    if (xSemaphoreTake(context.sse_clients_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
-            if (!context.sse_clients[i].connected) {
-                context.sse_clients[i].sockfd = sockfd;
-                context.sse_clients[i].connected = true;
-                xSemaphoreGive(context.sse_clients_mutex);
-                ESP_LOGI("HTTP", "Added SSE client %d at slot %d", sockfd, i);
-                return true;
-            }
-        }
-        xSemaphoreGive(context.sse_clients_mutex);
-    }
-    ESP_LOGW("HTTP", "No free SSE client slots available");
-    return false;
-}
-
-static void remove_sse_client(int sockfd)
-{
-    if (xSemaphoreTake(context.sse_clients_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
-            if (context.sse_clients[i].connected && context.sse_clients[i].sockfd == sockfd) {
-                context.sse_clients[i].connected = false;
-                context.sse_clients[i].sockfd = -1;
-                ESP_LOGI("HTTP", "Removed SSE client %d from slot %d", sockfd, i);
-                break;
-            }
-        }
-        xSemaphoreGive(context.sse_clients_mutex);
-    }
-}
-
-static int send_to_all_sse_clients(const char *data, size_t len)
-{
-    int sent_count = 0;
-    if (xSemaphoreTake(context.sse_clients_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
-            if (context.sse_clients[i].connected) {
-                if (httpd_socket_send(context.http_server, context.sse_clients[i].sockfd, data, len, 0) < 0) {
-                    ESP_LOGW("HTTP", "Failed to send to SSE client %d, marking as disconnected", context.sse_clients[i].sockfd);
-                    context.sse_clients[i].connected = false;
-                    context.sse_clients[i].sockfd = -1;
-                } else {
-                    sent_count++;
-                }
-            }
-        }
-        xSemaphoreGive(context.sse_clients_mutex);
-    }
-    return sent_count;
-}
-// ===== SSE Handler =====
-static esp_err_t sse_handler(httpd_req_t *req)
-{
-    // Set correct MIME type for SSE
-    httpd_resp_set_type(req, "text/event-stream");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    httpd_resp_set_hdr(req, "Connection", "keep-alive");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-
-    ESP_LOGI("HTTP", "SSE client connected");
-
-    // Get socket file descriptor and add to client list
-    int sockfd = httpd_req_to_sockfd(req);
-    if (!add_sse_client(sockfd)) {
-        ESP_LOGE("HTTP", "Failed to add SSE client - max clients reached");
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Max SSE clients reached");
-        return ESP_FAIL;
-    }
-
-    // Send initial connection event
-    char event_data[128];
+    ESP_LOGI("HTTP", "Received status request");
+    
+    // Get current status
     uint8_t current_ret_cmd;
+    float sensor_snapshot[8];
     xSemaphoreTake(context.ret_cmd_mutex, portMAX_DELAY);
     current_ret_cmd = context.ret_cmd;
+    memcpy(sensor_snapshot, context.sensor_data, sizeof(sensor_snapshot));
     xSemaphoreGive(context.ret_cmd_mutex);
-    
-    snprintf(event_data, sizeof(event_data), "data: {\"type\":\"connected\",\"ret_cmd\":%d}\n\n", current_ret_cmd);
-    if (httpd_resp_send_chunk(req, event_data, strlen(event_data)) != ESP_OK) {
-        ESP_LOGE("HTTP", "Failed to send SSE initial event");
-        remove_sse_client(sockfd);
-        return ESP_FAIL;
-    }
 
-    // Don't block! Return immediately and let the connection stay open
-    // The SSE task will handle periodic updates via httpd_socket_send
+    // Compose JSON response with ret_cmd and sensor_data
+    char response[256];
+    int len = snprintf(response, sizeof(response), "{\"ret_cmd\":%d,\"sensor_data\":[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f]}",
+        current_ret_cmd,
+        sensor_snapshot[0], sensor_snapshot[1], sensor_snapshot[2], sensor_snapshot[3],
+        sensor_snapshot[4], sensor_snapshot[5], sensor_snapshot[6], sensor_snapshot[7]);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, response);
     return ESP_OK;
-}
-
-// ===== SSE Background Task =====
-static void sse_task(void *arg)
-{
-    uint8_t last_ret_cmd = 0;
-    int heartbeat_counter = 0;
-    char event_data[128];
-    
-    while (true) {
-        // Check if ret_cmd changed
-        uint8_t current_ret_cmd;
-        if (xSemaphoreTake(context.ret_cmd_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-            current_ret_cmd = context.ret_cmd;
-            xSemaphoreGive(context.ret_cmd_mutex);
-            
-            if (current_ret_cmd != last_ret_cmd) {
-                snprintf(event_data, sizeof(event_data), "data: {\"type\":\"update\",\"ret_cmd\":%d}\n\n", current_ret_cmd);
-                int sent_count = send_to_all_sse_clients(event_data, strlen(event_data));
-                if (sent_count > 0) {
-                    last_ret_cmd = current_ret_cmd;
-                    ESP_LOGI("HTTP", "Sent SSE update to %d clients: ret_cmd=%d", sent_count, current_ret_cmd);
-                }
-            }
-        }
-
-        // Send heartbeat every 30 seconds
-        heartbeat_counter++;
-        if (heartbeat_counter >= 300) { // 300 * 100ms = 30 seconds
-            snprintf(event_data, sizeof(event_data), "data: {\"type\":\"heartbeat\",\"timestamp\":%d}\n\n", (int)(esp_timer_get_time() / 1000000));
-            int sent_count = send_to_all_sse_clients(event_data, strlen(event_data));
-            if (sent_count > 0) {
-                ESP_LOGI("HTTP", "Sent SSE heartbeat to %d clients", sent_count);
-            }
-            heartbeat_counter = 0;
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(100)); // Check every 100ms
-    }
-    vTaskDelete(NULL);
 }
 
 static const char *get_mime_type(const char *filename)
@@ -407,7 +295,6 @@ static void http_server_task(void *arg)
     }
     httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
     server_config.uri_match_fn = httpd_uri_match_wildcard;
-    server_config.max_open_sockets = 8;
     ESP_ERROR_CHECK(httpd_start(&server, &server_config));
 
     // Store server handle for SSE
@@ -421,13 +308,13 @@ static void http_server_task(void *arg)
         .user_ctx = NULL};
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &set_cmd_uri));
 
-    // SSE handler for /sse
-    httpd_uri_t sse_uri = {
-        .uri = "/sse",
+    // /status GET handler for polling
+    httpd_uri_t status_uri = {
+        .uri = "/status",
         .method = HTTP_GET,
-        .handler = sse_handler,
+        .handler = status_handler,
         .user_ctx = NULL};
-    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &sse_uri));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &status_uri));
 
     // Universal file handler for all requests
     httpd_uri_t file_uri = {
@@ -436,9 +323,6 @@ static void http_server_task(void *arg)
         .handler = file_handler,
         .user_ctx = NULL};
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &file_uri));
-
-    // Start SSE background task
-    xTaskCreate(sse_task, "sse_task", 4096, NULL, 5, NULL);
 
     ESP_LOGI("HTTP", "HTTP server started with SPIFFS file serving");
     vTaskDelete(NULL);
@@ -495,11 +379,9 @@ static void i2c_slave_task(void *arg)
         {
             if (evt == I2C_SLAVE_EVT_TX)
             {
-                uint8_t old_ret = context.ret_cmd;
-                context.ret_cmd = (context.ret_cmd + 0b00000001) & 0b00000111; // Increment ret_cmd for next response
                 uint32_t write_len = 0;
                 ESP_ERROR_CHECK(i2c_slave_write(slave_handle, &context.ret_cmd, 1, &write_len, -1));
-                ESP_LOGI("I2C", "Received TX event, sending queued ret_cmd: 0x%02X, queueing next ret_cmd: 0x%02X", old_ret, context.ret_cmd);
+                ESP_LOGI("I2C", "Received TX event, sending queued ret_cmd: 0x%02X", context.ret_cmd);
             }
             if (evt == I2C_SLAVE_EVT_RX)
             {
@@ -580,6 +462,13 @@ static void i2c_slave_task(void *arg)
                     case CMD_SENSOR_READ:
                     {
                         // Trigger sensor read logic
+                        // Simulate reading 8 float sensors (replace with real sensor code)
+                        xSemaphoreTake(context.ret_cmd_mutex, portMAX_DELAY);
+                        for (int i = 0; i < 8; ++i) {
+                            // Example: random float between 0 and 100
+                            context.sensor_data[i] = (float)(esp_random() % 10000) / 100.0f;
+                        }
+                        xSemaphoreGive(context.ret_cmd_mutex);
                         break;
                     }
                     default:
@@ -694,7 +583,6 @@ extern "C" void app_main(void)
     };
 
     context.ret_cmd_mutex = xSemaphoreCreateMutex();
-    context.sse_clients_mutex = xSemaphoreCreateMutex();
     // Create RX command queue (pointer to malloc'd buffers)
     context.cmd_queue = xQueueCreate(16, sizeof(uint8_t *));
     if (context.cmd_queue == NULL)

@@ -54,3 +54,21 @@ button:hover {
     color: #666;
     font-size: 1.1em;
 }
+
+.graphs {
+    margin: 2em 0 1em 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1em;
+    align-items: center;
+}
+.graph-row {
+    display: flex;
+    gap: 1em;
+}
+canvas[id^="graph"] {
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
