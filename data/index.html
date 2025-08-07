@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ESP32 Device Control</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <h1>ESP32 Device Control</h1>
+    <div class="cmd-value">
+        Current <code>ret_cmd</code>: <span id="retCmdVal">?</span>
+        <span id="retCmdBits"></span>
+    </div>
+    <div class="buttons">
+        <span class="bit-label">Toggle Bit 0 (Light):</span>
+        <button onclick="toggleBit(0)">Toggle</button>
+        <span class="bit-label">Toggle Bit 1 (Fan):</span>
+        <button onclick="toggleBit(1)">Toggle</button>
+        <span class="bit-label">Toggle Bit 2 (Door):</span>
+        <button onclick="toggleBit(2)">Toggle</button>
+    </div>
+    <div id="status"></div>
+    <script src="/main.js"></script>
+</body>
+</html>
