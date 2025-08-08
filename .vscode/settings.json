@@ -19,5 +19,7 @@
   "idf.flashType": "JTAG",
   "files.associations": {
     "cstring": "cpp"
-  }
+  },
+  "liveServer.settings.root": "/data"
 }
+

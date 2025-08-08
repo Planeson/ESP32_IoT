@@ -262,7 +262,7 @@ static esp_err_t file_handler(httpd_req_t *req)
     httpd_resp_set_type(req, get_mime_type(filepath));
 
     // Send file in chunks
-    char buffer[1024];
+    char buffer[1024];  
     size_t read_bytes;
     while ((read_bytes = fread(buffer, 1, sizeof(buffer), file)) > 0)
     {
