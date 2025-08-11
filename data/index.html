@@ -8,40 +8,26 @@
 </head>
 
 <body>
-    <h1>ESP32 IoT Dashboard</h1>
-    <table>
-        <!--tr>
-            <td class="toggleHeader">Light</td>
-            <td class="toggleHeader">Fan</td>
-            <td class="toggleHeader">Door</td>
-        </tr>
-    -->
-        <tr>
-            <td class="toggleButton"><button onclick="toggleBit(0)" id="bLight">Light</button></td>
-            <td class="toggleButton"><button onclick="toggleBit(1)" id="bFan">Fan</button></td>
-            <td class="toggleButton"><button onclick="toggleBit(2)" id="bDoor">Door</button></td>
-        </tr>
-    </table>
-    <div class="graphs">
-        <div class="graph-row">
-            <canvas id="graph0" width = "800" height = "640"></canvas>
-            <canvas id="graph1" width = "800" height = "640"></canvas>
+    <main>
+        <h1>ESP32 IoT Dashboard</h1>
+        <div class="toggleButtonsFlex">
+            <button onclick="toggleBit(0)" id="bLight">Light</button>
+            <button onclick="toggleBit(1)" id="bFan">Fan</button>
+            <button onclick="toggleBit(2)" id="bDoor">Door</button>
         </div>
-        <div class="graph-row">
-            <canvas id="graph2" width = "800" height = "640"></canvas>
-            <canvas id="graph3" width = "800" height = "640"></canvas>
+        <div class="graphs">
+            <canvas id="graph0" width="800" height="640"></canvas>
+            <canvas id="graph1" width="800" height="640"></canvas>
+            <canvas id="graph2" width="800" height="640"></canvas>
+            <canvas id="graph3" width="800" height="640"></canvas>
+            <canvas id="graph4" width="800" height="640"></canvas>
+            <canvas id="graph5" width="800" height="640"></canvas>
+            <canvas id="graph6" width="800" height="640"></canvas>
+            <canvas id="graph7" width="800" height="640"></canvas>
         </div>
-        <div class="graph-row">
-            <canvas id="graph4" width = "800" height = "640"></canvas>
-            <canvas id="graph5" width = "800" height = "640"></canvas>
-        </div>
-        <div class="graph-row">
-            <canvas id="graph6" width = "800" height = "640"></canvas>
-            <canvas id="graph7" width = "800" height = "640"></canvas>
-        </div>
-    </div>
-    <!-- Polling rate dropdown will be injected by main.js -->
-    <script src="/main.js"></script>
+        <!-- Polling rate dropdown will be injected by main.js -->
+        <script src="/main.js"></script>
+    </main>
 </body>
 
 </html>

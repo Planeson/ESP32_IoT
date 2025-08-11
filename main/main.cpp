@@ -13,7 +13,7 @@
 #include "sdkconfig.h"
 #include "esp_http_server.h"
 #include "esp_spiffs.h"
-// #include "mdns.h"
+#include "mdns.h"
 #include "lwip/ip4_addr.h"
 
 /*
@@ -28,9 +28,9 @@ This is necessary to prevent the I2C slave from blocking the master when it is n
 
 #define WIFI_SSID_MAXLEN 31 // max SSID length is 31 characters
 #define WIFI_PASS_MAXLEN 63 // max password length is 63 characters
-#define MAX_SSE_CLIENTS 4   // Maximum number of SSE clients
+#define MDNS_NAME_MAXLEN 32 // max mDNS name length is 32 characters
 
-#define CMD_WIFI_UID 0x30
+#define CMD_MDNS_NAME 0x30
 #define CMD_WIFI_SSID 0x31
 #define CMD_WIFI_PASS 0x32
 #define CMD_WIFI_START 0x33
@@ -45,9 +45,9 @@ typedef struct
     i2c_slave_dev_handle_t slave_handle;
     QueueHandle_t event_queue;
     QueueHandle_t cmd_queue; // FreeRTOS queue for received command buffers
-    char wifi_ssid[WIFI_SSID_MAXLEN + 1];
+    char wifi_ssid[WIFI_SSID_MAXLEN + 1]; // +1 for null terminator
     char wifi_pass[WIFI_PASS_MAXLEN + 1];
-    uint16_t web_uid;                // unique id for mDNS
+    char mdns_name[MDNS_NAME_MAXLEN + 1]; 
     uint8_t ret_cmd;                 // bit pattern to indicate supposed state of switches; light, fan, door
     bool wifi_started;               // flag to indicate if WiFi is connected
     SemaphoreHandle_t ret_cmd_mutex; // mutex for ret_cmd
@@ -63,13 +63,31 @@ i2c_slave_context_t context = {
     .cmd_queue = NULL,
     .wifi_ssid = "",
     .wifi_pass = "",
-    .web_uid = 69,
+    .mdns_name = "esp32-iot",
     .ret_cmd = 0b00000000,
     .wifi_started = false,
     .ret_cmd_mutex = NULL,
     .http_server = NULL,
     .sensor_data = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f}
 };
+
+// ===== mDNS ======
+
+static void initialise_mdns(const char *hostname = "esp32-iot")
+{
+    // Initialize mDNS
+    ESP_ERROR_CHECK(mdns_init());
+
+    // Set mDNS hostname
+    ESP_ERROR_CHECK(mdns_hostname_set(hostname));
+    ESP_LOGI("mDNS", "mDNS hostname set to: [%s]", hostname);
+
+    // Set default mDNS instance name
+    ESP_ERROR_CHECK(mdns_instance_name_set("ESP32 IoT Device"));
+}
+
+// ===== WiFi Station =====
+
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_wifi_event_group;
 
@@ -172,7 +190,7 @@ static esp_err_t set_cmd_handler(httpd_req_t *req)
 {
     ESP_LOGI("HTTP", "Received set_cmd request");
     char buf[32];
-    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1); 
     if (ret <= 0)
     {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No data");
@@ -380,7 +398,7 @@ static void i2c_slave_task(void *arg)
             if (evt == I2C_SLAVE_EVT_TX)
             {
                 uint32_t write_len = 0;
-                ESP_ERROR_CHECK(i2c_slave_write(slave_handle, &context.ret_cmd, 1, &write_len, -1));
+                ESP_ERROR_CHECK(i2c_slave_write(slave_handle, &context.ret_cmd, 1, &write_len, 1500));
                 ESP_LOGI("I2C", "Received TX event, sending queued ret_cmd: 0x%02X", context.ret_cmd);
             }
             if (evt == I2C_SLAVE_EVT_RX)
@@ -394,18 +412,17 @@ static void i2c_slave_task(void *arg)
                     ESP_LOGI("I2C", "Processing RX cmd 0x%02X of length %d", cmd, cmd_len);
                     switch (cmd)
                     {
-                    case CMD_WIFI_UID:
+                    case CMD_MDNS_NAME:
                     {
-                        if (context.wifi_started)
+                        if (cmd_len > 1)
                         {
-                            ESP_LOGW("I2C", "Cannot set web UID while WiFi is started");
-                            break;
-                        }
-                        if (cmd_len > 2)
-                        {
-                            uint16_t uid = (cmd_data[1] << 8) | cmd_data[2];
-                            context.web_uid = uid;
-                            ESP_LOGI("I2C", "Web uid set to %d", context.web_uid);
+                            size_t mdns_len = cmd_len - 1;
+                            if (mdns_len > MDNS_NAME_MAXLEN)
+                                mdns_len = MDNS_NAME_MAXLEN;
+                            memcpy(context.mdns_name, &cmd_data[1], mdns_len);
+                            context.mdns_name[mdns_len] = '\0';
+                            mdns_hostname_set(context.mdns_name);
+                            ESP_LOGI("I2C", "mDNS name set to: %s", context.mdns_name);
                         }
                         break;
                     }
@@ -485,13 +502,14 @@ static void i2c_slave_task(void *arg)
     vTaskDelete(NULL);
 }
 
+// debug print function, prints WiFi and mDNS info every second
 static void print_wifi_info_task(void *arg)
 {
     while (true)
     {
         printf("SSID: %s\n", context.wifi_ssid);
         printf("Password: %s\n", context.wifi_pass);
-        printf("UID: %d\n", context.web_uid);
+        printf("mDNS name: %s\n", context.mdns_name);
 
         // WiFi status
         wifi_ap_record_t ap_info;
@@ -532,6 +550,9 @@ extern "C" void app_main(void)
     // Initialize netif and event loop ONCE
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    initialise_mdns();
+
     esp_netif_create_default_wifi_sta();
 
     // Initialize SPIFFS

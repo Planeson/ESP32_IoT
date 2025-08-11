@@ -11,6 +11,10 @@ body {
     font-size: 1.1em;
 }
 
+main {
+    container-type: inline-size;
+}
+
 p {
     text-align: center;
     color: #666;
@@ -20,23 +24,29 @@ p {
 h1 {
     color: #1c499e;
     text-align: center;
-    margin-bottom: 1em;
+    margin-bottom: 0.2em;
     font-size: 2.5em;
     font-weight: bold;
-    container-name: h1;
 }
 
-@container h1 (min-width: 600px) {
-    .h1 {
-        font-size: 2em;
+@container (min-width: 600px) {
+    h1 {
+        font-size: 3em;
     }
 }
 
-@container h1 (min-width: 1200px) {
-    .h1 {
+@container (min-width: 20px) {
+    button {
         font-size: 10em;
     }
 }
+
+@container (min-width: 1200px) {
+    h1 {
+        font-size: 4em;
+    }
+}
+
 .buttons {
     margin: 1em 0;
     display: flex;
@@ -99,12 +109,14 @@ table {
     padding: 0.5em 1em;
     font-size: 2em;
     margin: auto;
+    container-type: inline-size;
 }
 
 button {
     font-size: 1.2em;
     padding: 0.5em 1.5em;
-    background: #c43131;
+    background: #a20606;
+    /* colour when not init, after received one data, change to light red/green */
     color: white;
     border: none;
     border-radius: 4px;
@@ -118,22 +130,82 @@ button:hover {
     background: #8dc7e5;
 }
 
-.graph-row {
-    display: flex;
-    justify-content: center;
+.graphs {
+    margin: 2em 0 1em 0;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr); /* 2 per row by default */
     gap: 1em;
-    margin-bottom: 1em;
+    align-items: center;
+    justify-items: center;
     width: 100%;
+    container-type: inline-size; /* Enable container queries for grid responsiveness */
 }
 
-.graph-row canvas {
-    flex: 1 1 0;
-    aspect-ratio: 1.25 / 1; /* 80% height of width */
-    min-width: 120px;
+/* Switch to 4 per row if container width > 1200px */
+@container (min-width: 1200px) {
+    .graphs {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+.graphs canvas {
+    width: 100%;
     max-width: 800px;
+    aspect-ratio: 1.25 / 1;
     background: #fff;
     border: 1px solid #bbb;
     border-radius: 8px;
     box-shadow: 0 2px 8px #0001;
     display: block;
+    min-width: 120px;
+}
+
+/* Flexbox container for toggle buttons with dark blue box */
+.toggleButtonsFlex {
+    display: flex;
+    gap: 1em;
+    justify-content: center;
+    align-items: stretch;
+    margin: 0 auto 20px auto;
+    padding: 1em;
+    background: #1c499e;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px #0002;
+    width: min(90%, 800px);
+    container-type: inline-size; /* Enable container queries for this box */
+}
+
+/* Style individual buttons inside the flexbox */
+.toggleButtonsFlex button {
+    flex: 1 1 0;
+    font-size: 1.2em; /* base font size */
+    padding: 0.5em 0em;
+    background: #a20606;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin: 0;
+    display: block;
+    max-width: 220px;
+    min-width: 60px;
+    box-sizing: border-box;
+}
+
+/* Autosize button fonts based on flex container width */
+@container (min-width: 400px) {
+    .toggleButtonsFlex button {
+        font-size: 1.5em;
+    }
+}
+@container (min-width: 600px) {
+    .toggleButtonsFlex button {
+        font-size: 2em;
+    }
+}
+@container (min-width: 800px) {
+    .toggleButtonsFlex button {
+        font-size: 2.4em;
+    }
 }

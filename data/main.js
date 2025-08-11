@@ -74,12 +74,12 @@ function drawGraphs() {
         const timestamps = sensorTimestamps[i];
         if (timestamps.length > 1) {
             ctx.fillStyle = '#666';
-            ctx.font = '16px Arial';
+            ctx.font = '28px Arial';
             for (let j = 0; j < timestamps.length; j += 20) {
                 const x = (j / maxHistory) * canvas.width;
                 const t = new Date(timestamps[j]);
                 const label = t.toLocaleTimeString();
-                ctx.fillText(label, x, canvas.height - 22);
+                ctx.fillText(label, x, canvas.height - 10);
             }
         }
 
@@ -95,18 +95,18 @@ function drawGraphs() {
             const x = (j / maxHistory) * canvas.width;
             // Scale sensor value to full height
             const norm = (sensorHist[j] - min) / (max - min);
-            const y = canvas.height - 20 - norm * (canvas.height - 30);
+            const y = canvas.height - 80 - norm * (canvas.height - 140);
             if (j === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
         // Label
         ctx.fillStyle = '#333';
-        ctx.font = '28px Arial';
-        ctx.fillText('Sensor ' + i, 8, 30);
+        ctx.font = '40px Arial';
+        ctx.fillText('Sensor ' + i, 8, 44);
         ctx.fillStyle = '#e67e22';
-        ctx.font = '24px Arial';
-        ctx.fillText('Value: ' + (sensorHist[sensorHist.length - 1] || 0).toFixed(2), 8, canvas.height - 14);
+        ctx.font = '38px Arial';
+        ctx.fillText('Value: ' + (sensorHist[sensorHist.length - 1] || 0).toFixed(2), 8, canvas.height - 46);
     }
 }
 
