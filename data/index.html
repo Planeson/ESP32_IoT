@@ -4,16 +4,18 @@
 <head>
     <meta charset="UTF-8">
     <title>ESP32 IoT Dashboard</title>
-    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
     <main>
         <h1>ESP32 IoT Dashboard</h1>
         <div class="toggleButtonsFlex">
-            <button onclick="toggleBit(0)" id="bLight">Light</button>
-            <button onclick="toggleBit(1)" id="bFan">Fan</button>
-            <button onclick="toggleBit(2)" id="bDoor">Door</button>
+            <button onclick="toggleDoor()" id="bDoor">Door</button>
+            <label for="fanSlider" style="color:white; margin:0 1em;">Fan</label>
+            <input type="range" min="0" max="255" id="fanSlider" class="slider">
+            <label for="lightSlider" style="color:white; margin:0 1em;">Light</label>
+            <input type="range" min="0" max="255" id="lightSlider" class="slider">
         </div>
         <div class="graphs">
             <canvas id="graph0" width="800" height="640"></canvas>
@@ -25,8 +27,7 @@
             <canvas id="graph6" width="800" height="640"></canvas>
             <canvas id="graph7" width="800" height="640"></canvas>
         </div>
-        <!-- Polling rate dropdown will be injected by main.js -->
-        <script src="/main.js"></script>
+        <script src="main.js"></script>
     </main>
 </body>
 

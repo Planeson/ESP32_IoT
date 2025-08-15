@@ -1,3 +1,17 @@
+/**
+ * esp32_iot/main.cpp
+ *
+ * includes
+ * defines
+ * typedefs
+ * mDNS
+ * WiFi Station
+ * SPIFFS File Server
+ * http server
+ * I2C Slave
+ * app_main
+ */
+
 // --- Required includes for RTOS and synchronization ---
 #include <stdio.h>
 #include <string.h>
@@ -26,9 +40,10 @@ This is necessary to prevent the I2C slave from blocking the master when it is n
 #define I2C_SLAVE_NUM 0
 #define ESP_SLAVE_ADDR 0x22
 
-#define WIFI_SSID_MAXLEN 31 // max SSID length is 31 characters
-#define WIFI_PASS_MAXLEN 63 // max password length is 63 characters
-#define MDNS_NAME_MAXLEN 32 // max mDNS name length is 32 characters
+#define WIFI_SSID_MAXLEN 32 + 1 // max SSID length is 32 characters, +1 for null terminator, see IEEE802.11
+#define WIFI_PASS_MAXLEN 64 + 1 // max password length is 64 characters, +1 for null-terminator, see IEEE802.11
+#define MDNS_NAME_MAXLEN 32     // max mDNS name length is 32 characters
+#define SENSOR_NAME_MAXLEN 32   // max sensor name length is 32 characters
 
 #define CMD_MDNS_NAME 0x30
 #define CMD_WIFI_SSID 0x31
@@ -36,26 +51,35 @@ This is necessary to prevent the I2C slave from blocking the master when it is n
 #define CMD_WIFI_START 0x33
 
 #define CMD_SENSOR_READ 0x40
+#define CMD_SENSOR_SETUP 0x41
 
-#define CMD_SEND_AVAIL 0x50
-#define CMD_SEND_BUFFER 0x51
+#define CMD_SEND_DATA 0x50
+
+enum units
+{
+    UNIT_CELSIUS,
+    UNIT_FAHRENHEIT,
+    UNIT_KELVIN,
+    UNIT_CM,
+    UNIT_PERCENT,
+    UNIT_NONE
+};
 
 typedef struct
 {
     i2c_slave_dev_handle_t slave_handle;
     QueueHandle_t event_queue;
-    QueueHandle_t cmd_queue; // FreeRTOS queue for received command buffers
-    char wifi_ssid[WIFI_SSID_MAXLEN + 1]; // +1 for null terminator
-    char wifi_pass[WIFI_PASS_MAXLEN + 1];
-    char mdns_name[MDNS_NAME_MAXLEN + 1]; 
-    uint8_t ret_cmd;                 // bit pattern to indicate supposed state of switches; light, fan, door
-    bool wifi_started;               // flag to indicate if WiFi is connected
-    SemaphoreHandle_t ret_cmd_mutex; // mutex for ret_cmd
-    httpd_handle_t http_server;      // HTTP server handle for SSE
-    float sensor_data[8];            // latest sensor data (up to 8 sensors)
+    QueueHandle_t cmd_queue;
+    char wifi_ssid[WIFI_SSID_MAXLEN];
+    char wifi_pass[WIFI_PASS_MAXLEN];
+    char mdns_name[MDNS_NAME_MAXLEN];
+    uint8_t response_data[4];           // [0]=padding, [1]=door, [2]=fan, [3]=light
+    bool wifi_started;
+    SemaphoreHandle_t ret_cmd_mutex;
+    httpd_handle_t http_server;
+    float sensor_data[8];
+    char sensor_name[8][SENSOR_NAME_MAXLEN];
 } i2c_slave_context_t;
-
-// ===== WIFI Task =====
 
 i2c_slave_context_t context = {
     .slave_handle = NULL,
@@ -64,11 +88,11 @@ i2c_slave_context_t context = {
     .wifi_ssid = "",
     .wifi_pass = "",
     .mdns_name = "esp32-iot",
-    .ret_cmd = 0b00000000,
+    .response_data = {0x69, 0, 0, 0},
     .wifi_started = false,
     .ret_cmd_mutex = NULL,
     .http_server = NULL,
-    .sensor_data = {0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f}
+    .sensor_data = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
 };
 
 // ===== mDNS ======
@@ -94,7 +118,7 @@ static EventGroupHandle_t s_wifi_event_group;
 /* The event group allows multiple bits for each event, but we only care about two events:
  * - we are connected to the AP with an IP
  * - we failed to connect after the maximum amount of retries */
-#define WIFI_CONNECTED_BIT BIT0
+#define WIFI_CONNECTED_BIT BIT0 
 #define WIFI_FAIL_BIT BIT1
 
 static const char *TAG = "wifi station";
@@ -190,23 +214,29 @@ static esp_err_t set_cmd_handler(httpd_req_t *req)
 {
     ESP_LOGI("HTTP", "Received set_cmd request");
     char buf[32];
-    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1); 
+    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
     if (ret <= 0)
     {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No data");
         return ESP_FAIL;
     }
     buf[ret] = 0;
-    int new_cmd = -1;
-    sscanf(buf, "ret_cmd=%d", &new_cmd);
-    if (new_cmd < 0 || new_cmd > 7)
+    int door = -1, fan = -1, light = -1;
+    sscanf(buf, "door=%d&fan=%d&light=%d", &door, &fan, &light);
+    if (door < 0 || door > 1 || fan < 0 || fan > 255 || light < 0 || light > 255)
     {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid value");
         return ESP_FAIL;
     }
+    
     xSemaphoreTake(context.ret_cmd_mutex, portMAX_DELAY);
-    context.ret_cmd = (uint8_t)new_cmd;
+    //context.response_data[0] = 0x69; // Padding/garbage, no need change
+    context.response_data[1] = (uint8_t)door;
+    context.response_data[2] = (uint8_t)fan;
+    context.response_data[3] = (uint8_t)light;
     xSemaphoreGive(context.ret_cmd_mutex);
+    
+    ESP_LOGI("HTTP", "Updated: door=%d, fan=%d, light=%d", door, fan, light);
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
 }
@@ -215,21 +245,24 @@ static esp_err_t set_cmd_handler(httpd_req_t *req)
 static esp_err_t status_handler(httpd_req_t *req)
 {
     ESP_LOGI("HTTP", "Received status request");
-    
+
     // Get current status
-    uint8_t current_ret_cmd;
+    uint8_t door_state, fan_level, light_level;
     float sensor_snapshot[8];
     xSemaphoreTake(context.ret_cmd_mutex, portMAX_DELAY);
-    current_ret_cmd = context.ret_cmd;
+    door_state = context.response_data[1];
+    fan_level = context.response_data[2];
+    light_level = context.response_data[3];
     memcpy(sensor_snapshot, context.sensor_data, sizeof(sensor_snapshot));
     xSemaphoreGive(context.ret_cmd_mutex);
 
-    // Compose JSON response with ret_cmd and sensor_data
+    // Compose JSON response with door_state, fan_level, light_level, and sensor_data
     char response[256];
-    int len = snprintf(response, sizeof(response), "{\"ret_cmd\":%d,\"sensor_data\":[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f]}",
-        current_ret_cmd,
-        sensor_snapshot[0], sensor_snapshot[1], sensor_snapshot[2], sensor_snapshot[3],
-        sensor_snapshot[4], sensor_snapshot[5], sensor_snapshot[6], sensor_snapshot[7]);
+    int len = snprintf(response, sizeof(response),
+                       "{\"door_state\":%d,\"fan_level\":%d,\"light_level\":%d,\"sensor_data\":[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f]}",
+                       door_state, fan_level, light_level,
+                       sensor_snapshot[0], sensor_snapshot[1], sensor_snapshot[2], sensor_snapshot[3],
+                       sensor_snapshot[4], sensor_snapshot[5], sensor_snapshot[6], sensor_snapshot[7]);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -280,7 +313,7 @@ static esp_err_t file_handler(httpd_req_t *req)
     httpd_resp_set_type(req, get_mime_type(filepath));
 
     // Send file in chunks
-    char buffer[1024];  
+    char buffer[1024];
     size_t read_bytes;
     while ((read_bytes = fread(buffer, 1, sizeof(buffer), file)) > 0)
     {
@@ -301,7 +334,6 @@ static esp_err_t file_handler(httpd_req_t *req)
 }
 
 // ===== HTTP Server Task =====
-
 static void http_server_task(void *arg)
 {
     ESP_LOGI("HTTP", "Starting HTTP server task");
@@ -354,17 +386,17 @@ typedef enum
     I2C_SLAVE_EVT_TX
 } i2c_slave_event_t;
 
-// I2C slave request callback
+// I2C slave request callback with mutex protection
 static bool i2c_slave_request_cb(i2c_slave_dev_handle_t i2c_slave, const i2c_slave_request_event_data_t *evt_data, void *arg)
 {
-    i2c_slave_event_t evt = I2C_SLAVE_EVT_TX;
-    BaseType_t xTaskWoken = 0;
-    // You can prepare data to send back to master here
-    xQueueSendFromISR(context.event_queue, &evt, &xTaskWoken);
-    return xTaskWoken;
+    uint32_t write_len = 0;
+    xSemaphoreTake(context.ret_cmd_mutex, 0);
+    i2c_slave_write(i2c_slave, context.response_data, 4, &write_len, 0);
+    xSemaphoreGive(context.ret_cmd_mutex);
+    return false;
 }
 
-// I2C slave receive callback
+// I2C slave receive callback (unchanged)
 static bool i2c_slave_receive_cb(i2c_slave_dev_handle_t i2c_slave, const i2c_slave_rx_done_event_data_t *evt_data, void *arg)
 {
     i2c_slave_event_t evt = I2C_SLAVE_EVT_RX;
@@ -395,12 +427,6 @@ static void i2c_slave_task(void *arg)
         i2c_slave_event_t evt;
         if (xQueueReceive(context.event_queue, &evt, 10) == pdPASS)
         {
-            if (evt == I2C_SLAVE_EVT_TX)
-            {
-                uint32_t write_len = 0;
-                ESP_ERROR_CHECK(i2c_slave_write(slave_handle, &context.ret_cmd, 1, &write_len, 1500));
-                ESP_LOGI("I2C", "Received TX event, sending queued ret_cmd: 0x%02X", context.ret_cmd);
-            }
             if (evt == I2C_SLAVE_EVT_RX)
             {
                 uint8_t *cmd_buf = NULL;
@@ -478,14 +504,16 @@ static void i2c_slave_task(void *arg)
                     }
                     case CMD_SENSOR_READ:
                     {
-                        // Trigger sensor read logic
-                        // Simulate reading 8 float sensors (replace with real sensor code)
-                        xSemaphoreTake(context.ret_cmd_mutex, portMAX_DELAY);
-                        for (int i = 0; i < 8; ++i) {
-                            // Example: random float between 0 and 100
-                            context.sensor_data[i] = (float)(esp_random() % 10000) / 100.0f;
+                        // sensor read
+                        if (cmd_len == 5)
+                        {
                         }
-                        xSemaphoreGive(context.ret_cmd_mutex);
+                        break;
+                    }
+                    case CMD_SENSOR_SETUP:
+                    {
+                        if (cmd_len > 1)
+                            ESP_LOGI("I2C", "Sensor data updated");
                         break;
                     }
                     default:
@@ -592,13 +620,12 @@ extern "C" void app_main(void)
     }
 
     // I2C slave config
-    // using I2C slave version 2, be sure to check it in component config -> I2C
     i2c_slave_config_t conf = {
         .i2c_port = I2C_SLAVE_NUM,
         .sda_io_num = I2C_SLAVE_SDA_IO,
         .scl_io_num = I2C_SLAVE_SCL_IO,
         .clk_source = I2C_CLK_SRC_DEFAULT,
-        .send_buf_depth = 150,
+        .send_buf_depth = 4,                    // 4 bytes
         .receive_buf_depth = 150,
         .slave_addr = ESP_SLAVE_ADDR,
     };
@@ -630,11 +657,6 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(i2c_slave_register_event_callbacks(context.slave_handle, &cbs, &context));
 
     ESP_LOGI("I2C", "I2C slave initialized on SCL %d, SDA %d", I2C_SLAVE_SCL_IO, I2C_SLAVE_SDA_IO);
-
-    i2c_slave_dev_handle_t slave_handle = (i2c_slave_dev_handle_t)context.slave_handle;
-    uint32_t write_len = 0;
-    context.ret_cmd = 0b00000000; // Initialize ret_cmd to 0
-    ESP_ERROR_CHECK(i2c_slave_write(slave_handle, &context.ret_cmd, 1, &write_len, 1000));
 
     xTaskCreate(i2c_slave_task, "i2c_slave_task", 4 * 1024, &context, 10, NULL);
     // xTaskCreate(print_wifi_info_task, "print_wifi_info_task", 4096, &context, 5, NULL);
