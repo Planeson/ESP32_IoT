@@ -12,10 +12,14 @@
         <h1>ESP32 IoT Dashboard</h1>
         <div class="toggleButtonsFlex">
             <button onclick="toggleDoor()" id="bDoor">Door</button>
-            <label for="fanSlider" style="color:white; margin:0 1em;">Fan</label>
-            <input type="range" min="0" max="255" id="fanSlider" class="slider">
-            <label for="lightSlider" style="color:white; margin:0 1em;">Light</label>
-            <input type="range" min="0" max="255" id="lightSlider" class="slider">
+            <div class="sliderGroup">
+                <label for="fanSlider" style="color:white; margin-bottom:0.3em;">Fan</label>
+                <input type="range" min="0" max="255" id="fanSlider" class="slider">
+            </div>
+            <div class="sliderGroup">
+                <label for="lightSlider" style="color:white; margin-bottom:0.3em;">Light</label>
+                <input type="range" min="0" max="255" id="lightSlider" class="slider">
+            </div>
         </div>
         <div class="graphs">
             <canvas id="graph0" width="800" height="640"></canvas>

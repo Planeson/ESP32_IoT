@@ -76,6 +76,7 @@ typedef struct
     uint8_t response_data[4];           // [0]=padding, [1]=door, [2]=fan, [3]=light
     bool wifi_started;
     SemaphoreHandle_t ret_cmd_mutex;
+    SemaphoreHandle_t sensor_mutex;
     httpd_handle_t http_server;
     float sensor_data[8];
     char sensor_name[8][SENSOR_NAME_MAXLEN];
@@ -91,6 +92,7 @@ i2c_slave_context_t context = {
     .response_data = {0x69, 0, 0, 0},
     .wifi_started = false,
     .ret_cmd_mutex = NULL,
+    .sensor_mutex = NULL,
     .http_server = NULL,
     .sensor_data = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
 };
@@ -253,14 +255,33 @@ static esp_err_t status_handler(httpd_req_t *req)
     door_state = context.response_data[1];
     fan_level = context.response_data[2];
     light_level = context.response_data[3];
-    memcpy(sensor_snapshot, context.sensor_data, sizeof(sensor_snapshot));
     xSemaphoreGive(context.ret_cmd_mutex);
 
     // Compose JSON response with door_state, fan_level, light_level, and sensor_data
     char response[256];
     int len = snprintf(response, sizeof(response),
-                       "{\"door_state\":%d,\"fan_level\":%d,\"light_level\":%d,\"sensor_data\":[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f]}",
-                       door_state, fan_level, light_level,
+                       "{\"door_state\":%d,\"fan_level\":%d,\"light_level\":%d}",
+                       door_state, fan_level, light_level);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, response);
+    return ESP_OK;
+}
+static esp_err_t sensor_handler(httpd_req_t *req)
+{
+    ESP_LOGI("HTTP", "Received sensor request");
+
+    // Get current status
+    float sensor_snapshot[8];
+    xSemaphoreTake(context.sensor_mutex, portMAX_DELAY);
+    memcpy(sensor_snapshot, context.sensor_data, sizeof(sensor_snapshot));
+    xSemaphoreGive(context.sensor_mutex);
+
+    // Compose JSON response with door_state, fan_level, light_level, and sensor_data
+    char response[256];
+    int len = snprintf(response, sizeof(response),
+                       "{\"sensor_data\":[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f]}",
                        sensor_snapshot[0], sensor_snapshot[1], sensor_snapshot[2], sensor_snapshot[3],
                        sensor_snapshot[4], sensor_snapshot[5], sensor_snapshot[6], sensor_snapshot[7]);
     httpd_resp_set_type(req, "application/json");
@@ -365,6 +386,14 @@ static void http_server_task(void *arg)
         .handler = status_handler,
         .user_ctx = NULL};
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &status_uri));
+
+    // /sensor GET handler for polling
+    httpd_uri_t sensor_uri = {
+        .uri = "/sensor",
+        .method = HTTP_GET,
+        .handler = sensor_handler,
+        .user_ctx = NULL};
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &sensor_uri));
 
     // Universal file handler for all requests
     httpd_uri_t file_uri = {
@@ -631,6 +660,7 @@ extern "C" void app_main(void)
     };
 
     context.ret_cmd_mutex = xSemaphoreCreateMutex();
+    context.sensor_mutex = xSemaphoreCreateMutex();
     // Create RX command queue (pointer to malloc'd buffers)
     context.cmd_queue = xQueueCreate(16, sizeof(uint8_t *));
     if (context.cmd_queue == NULL)

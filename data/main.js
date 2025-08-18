@@ -1,7 +1,9 @@
 let currentCmd = 0;
 let pollInterval = 1000;
 let pollTimer = null;
-let buttonDOM = [null, null, null];
+let butDOM = null;
+let fanDOM = null;
+let litDOM = null;
 
 
 function initSwitchesDom() {
@@ -33,8 +35,8 @@ function pollStatus() {
             }
             drawGraphs();
         })
-        .catch(() => {
-            console.error('Error fetching status');
+        .catch((error) => {
+            console.error('Error fetching status', error);
         });
 }
 
@@ -61,6 +63,81 @@ function pollSensors() {
             console.error('Error fetching status');
         });
 }
+
+// --- Frontend logic for new controls ---
+let doorState = 0;
+let fanLevel = 0;
+let lightLevel = 0;
+let fanLevelServer = 0;
+let lightLevelServer = 0;
+
+function updateStatusUI(data) {
+    // set door button
+    butDOM.style.backgroundColor = data.door_state ? '#2ecc71' : '#e74c3c';
+    
+    // set sliders
+    fanLevelServer = data.fan_level;
+    lightLevelServer = data.light_level;
+    setSliderServer(fanDOM, fanLevelServer);
+    setSliderServer(litDOM, lightLevelServer);
+}
+
+function setCmd() {
+    fetch('/set_cmd', {
+        method: 'POST',
+        body: `door=${doorState}&fan=${fanLevel}&light=${lightLevel}`,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    }).then(() => pollStatus());
+}
+
+function toggleDoor() {
+    doorState = doorState ? 0 : 1;
+    setCmd();
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    initSwitchesDom();
+    fanDOM.addEventListener('input', function () {
+        fanLevel = parseInt(this.value, 10);
+        setSliderServer(this, fanLevelServer); // Show user drag
+    });
+    
+    fanDOM.addEventListener('change', function () {
+        setCmd();
+    });
+    
+    litDOM.addEventListener('input', function () {
+        lightLevel = parseInt(this.value, 10);
+        setSliderServer(this, lightLevelServer); // Show user drag
+    });
+    
+    litDOM.addEventListener('change', function () {
+        setCmd();
+    });
+    
+    // Initial poll and periodic update
+    pollSensors();
+    setInterval(pollSensors, 1000);
+});
+
+
+// first is user val, second is returned val
+let fanSliderVal = [0, 0];
+let lightSliderVal = [0, 0];
+
+function setSliderServer(slider, serverLevel) {
+    const sliderPercent = slider.value / 255 * 100;
+    const serverPercent = serverLevel / 255 * 100;
+    if (sliderPercent > serverPercent) {
+        slider.style.setProperty('--pc1', sliderPercent + '%');
+        slider.style.setProperty('--pc2', serverPercent + '%');
+    }
+    else {
+        slider.style.setProperty('--pc1', serverPercent + '%');
+        slider.style.setProperty('--pc2', sliderPercent + '%');
+    }
+};
+
 function drawGraphs() {
     for (let i = 0; i < 8; i++) {
         const canvas = document.getElementById('graph' + i);
@@ -112,78 +189,8 @@ function drawGraphs() {
         ctx.font = '38px Arial';
         ctx.fillText('Value: ' + (sensorHist[sensorHist.length - 1] || 0).toFixed(2), 8, canvas.height - 46);
     }
-}
-
-// --- Frontend logic for new controls ---
-let doorState = 0;
-let fanLevel = 0;
-let lightLevel = 0;
-let fanLevelServer = 0;
-let lightLevelServer = 0;
-
-function updateStatusUI(data) {
-    // set door button
-    butDom.style.backgroundColor = data.door_state ? '#2ecc71' : '#e74c3c';
-
-    // set sliders
-    fanLevelServer = data.fan_level;
-    lightLevelServer = data.light_level;
-    setSliderServer(fanDOM, fanLevelServer);
-    setSliderServer(litDOM, lightLevelServer);
-}
-
-function setCmd() {
-    fetch('/set_cmd', {
-        method: 'POST',
-        body: `door=${doorState}&fan=${fanLevel}&light=${lightLevel}`,
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-    }).then(() => pollStatus());
-}
-
-function toggleDoor() {
-    doorState = doorState ? 0 : 1;
-    setCmd();
-}
-
-document.addEventListener('DOMContentLoaded', function () {
-    fanDOM.addEventListener('input', function () {
-        fanLevel = parseInt(this.value, 10);
-        setSliderBackground(this, fanSliderVal); // Show user drag
-        setCmd();
-    });
-
-    litDOM.addEventListener('input', function () {
-        lightLevel = parseInt(this.value, 10);
-        setSliderBackground(this, lightSliderVal); // Show user drag
-        setCmd();
-    });
-
-    // Initial poll and periodic update
-    pollSensors();
-    setInterval(pollSensors, 1000);
-});
-
-
-// first is user val, second is returned val
-let fanSliderVal = [0, 0];
-let lightSliderVal = [0, 0];
-
-function setSliderServer(slider, serverLevel) {
-    const sliderPercent = slider.value / 255 * 100;
-    const serverPercent = serverLevel / 255 * 100;
-    if (sliderPercent > serverPercent) {
-        slider.style.setProperty('--pc1', sliderPercent + '%');
-        slider.style.setProperty('--pc2', serverPercent + '%');
-    }
-    else {
-        slider.style.setProperty('--pc1', serverPercent + '%');
-        slider.style.setProperty('--pc2', sliderPercent + '%');
-    }
-}
-
-
+};
 
 // initialization
 window.onload = function () {
-    initSwitchesDom();
 };
