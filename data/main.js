@@ -14,7 +14,7 @@ function initSwitchesDom() {
 
 // Store sensor data history (max 100 points)
 const sensorHistory = Array(8).fill().map(() => []);
-const sensorsensorTimestamps = [];
+const sensorTimestamp = [];
 const maxHistory = 100;
 
 function pollStatus() {
@@ -23,11 +23,11 @@ function pollStatus() {
         .then(data => {
             // Save button states
             updateStatusUI(data);
-            // Save sensor data to history with sensorTimestamps
+            // Save sensor data to history
             if (Array.isArray(data.sensor_data)) {
                 const now = Date.now();
-                sensorsensorTimestamps.push(now);
-                if (sensorsensorTimestamps.length > maxHistory) sensorsensorTimestamps.shift();
+                sensorTimestamp.push(now);
+                if (sensorTimestamp.length > maxHistory) sensorTimestamp.shift();
                 for (let i = 0; i < 8; i++) {
                     sensorHistory[i].push(data.sensor_data[i] || 0);
                     if (sensorHistory[i].length > maxHistory) sensorHistory[i].shift();
@@ -50,11 +50,11 @@ function pollSensors() {
             // Save sensor data to history with sensorTimestamps
             if (Array.isArray(data.sensor_data)) {
                 const now = Date.now();
+                sensorTimestamp.push(now);
+                if (sensorTimestamp.length > maxHistory) sensorTimestamp.shift();
                 for (let i = 0; i < 8; i++) {
                     sensorHistory[i].push(data.sensor_data[i] || 0);
-                    sensorsensorTimestamps[i].push(now);
                     if (sensorHistory[i].length > maxHistory) sensorHistory[i].shift();
-                    if (sensorsensorTimestamps[i].length > maxHistory) sensorsensorTimestamps[i].shift();
                 }
             }
             drawGraphs();
