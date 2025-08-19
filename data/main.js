@@ -14,7 +14,7 @@ function initSwitchesDom() {
 
 // Store sensor data history (max 100 points)
 const sensorHistory = Array(8).fill().map(() => []);
-const sensorTimestamps = Array(8).fill().map(() => []);
+const sensorsensorTimestamps = [];
 const maxHistory = 100;
 
 function pollStatus() {
@@ -23,14 +23,14 @@ function pollStatus() {
         .then(data => {
             // Save button states
             updateStatusUI(data);
-            // Save sensor data to history with timestamps
+            // Save sensor data to history with sensorTimestamps
             if (Array.isArray(data.sensor_data)) {
                 const now = Date.now();
+                sensorsensorTimestamps.push(now);
+                if (sensorsensorTimestamps.length > maxHistory) sensorsensorTimestamps.shift();
                 for (let i = 0; i < 8; i++) {
                     sensorHistory[i].push(data.sensor_data[i] || 0);
-                    sensorTimestamps[i].push(now);
                     if (sensorHistory[i].length > maxHistory) sensorHistory[i].shift();
-                    if (sensorTimestamps[i].length > maxHistory) sensorTimestamps[i].shift();
                 }
             }
             drawGraphs();
@@ -47,14 +47,14 @@ function pollSensors() {
         .then(data => {
             // Save button states
             updateStatusUI(data);
-            // Save sensor data to history with timestamps
+            // Save sensor data to history with sensorTimestamps
             if (Array.isArray(data.sensor_data)) {
                 const now = Date.now();
                 for (let i = 0; i < 8; i++) {
                     sensorHistory[i].push(data.sensor_data[i] || 0);
-                    sensorTimestamps[i].push(now);
+                    sensorsensorTimestamps[i].push(now);
                     if (sensorHistory[i].length > maxHistory) sensorHistory[i].shift();
-                    if (sensorTimestamps[i].length > maxHistory) sensorTimestamps[i].shift();
+                    if (sensorsensorTimestamps[i].length > maxHistory) sensorsensorTimestamps[i].shift();
                 }
             }
             drawGraphs();
@@ -152,13 +152,12 @@ function drawGraphs() {
         ctx.stroke();
 
         // Draw time axis ticks (every 20 points)
-        const timestamps = sensorTimestamps[i];
-        if (timestamps.length > 1) {
+        if (sensorTimestamps.length > 1) {
             ctx.fillStyle = '#666';
             ctx.font = '28px Arial';
-            for (let j = 0; j < timestamps.length; j += 20) {
+            for (let j = 0; j < sensorTimestamps.length; j += 20) {
                 const x = (j / maxHistory) * canvas.width;
-                const t = new Date(timestamps[j]);
+                const t = new Date(sensorTimestamps[j]);
                 const label = t.toLocaleTimeString();
                 ctx.fillText(label, x, canvas.height - 10);
             }
