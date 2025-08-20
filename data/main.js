@@ -23,17 +23,6 @@ function pollStatus() {
         .then(data => {
             // Save button states
             updateStatusUI(data);
-            // Save sensor data to history
-            if (Array.isArray(data.sensor_data)) {
-                const now = Date.now();
-                sensorTimestamp.push(now);
-                if (sensorTimestamp.length > maxHistory) sensorTimestamp.shift();
-                for (let i = 0; i < 8; i++) {
-                    sensorHistory[i].push(data.sensor_data[i] || 0);
-                    if (sensorHistory[i].length > maxHistory) sensorHistory[i].shift();
-                }
-            }
-            drawGraphs();
         })
         .catch((error) => {
             console.error('Error fetching status', error);
@@ -41,12 +30,9 @@ function pollStatus() {
 }
 
 function pollSensors() {
-    return;
     fetch('/sensor')
         .then(response => response.json())
         .then(data => {
-            // Save button states
-            updateStatusUI(data);
             // Save sensor data to history with sensorTimestamps
             if (Array.isArray(data.sensor_data)) {
                 const now = Date.now();
@@ -155,7 +141,7 @@ function drawGraphs() {
         if (sensorTimestamps.length > 1) {
             ctx.fillStyle = '#666';
             ctx.font = '28px Arial';
-            for (let j = 0; j < sensorTimestamps.length; j += 20) {
+            for (let j = 0; j < sensorTimestamp.length; j += 20) {
                 const x = (j / maxHistory) * canvas.width;
                 const t = new Date(sensorTimestamps[j]);
                 const label = t.toLocaleTimeString();

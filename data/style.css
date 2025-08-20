@@ -63,9 +63,9 @@ h1 {
     --upper: max(var(--pc1), var(--pc2));
     background: linear-gradient(to right, transparent 0 var(--lower), rgba(0, 0, 0, 0.2) var(--lower) 100%), linear-gradient(to right, transparent 0 var(--upper), #d3d3d3 var(--upper) 100%), linear-gradient(to right, red, yellow);
     outline: none;
+    -webkit-transition: 0.2s;
+    transition: 0.2s;
     opacity: 0.9;
-    -webkit-transition: .2s;
-    transition: opacity .2s;
 }
 
 .slider:hover {
@@ -205,6 +205,8 @@ button:hover {
     box-shadow: 0 2px 12px #0002;
     width: max(min(90%, 800px), 180px);
     container-type: inline-size;
+    -webkit-transition: 0.2s;
+    transition: 0.2s;
     /* Enable container queries for this box */
 }
 
@@ -219,13 +221,12 @@ button:hover {
     border: none;
     border-radius: 6px;
     cursor: pointer;
-    transition: background 0.2s;
     margin: 0;
     display: block;
     box-sizing: border-box;
     opacity: 0.9;
-    -webkit-transition: .2s;
-    transition: opacity .2s;
+    -webkit-transition: 0.2s;
+    transition: 0.2s;
 }
 
 .toggleButtonsFlex button:hover {
